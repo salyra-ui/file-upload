@@ -22,6 +22,7 @@ final class UploadEngine {
             if ($existing) {
                 $this->authorize('create', $existing, $context);
                 if ($existing['descriptor'] != $descriptor) throw new UploadError(409, 'KEY_CONFLICT', 'Key belongs to another file');
+                if ($existing['expiresAt'] <= microtime(true)*1000 && $existing['state'] === 'finalizing') $this->reconcile($existing, $context);
                 if ($existing['expiresAt'] <= microtime(true)*1000 && $existing['state'] !== 'completed') throw new UploadError(410, 'EXPIRED', 'Session expired');
                 return ['id'=>$id, 'chunkSize'=>$descriptor['chunkSize'], 'expiresAt'=>$existing['expiresAt']];
             }
@@ -37,6 +38,10 @@ final class UploadEngine {
         $this->authorize($operation, $session, $context);
         if ($session['state'] === 'expired') throw new UploadError(410, 'EXPIRED', 'Session expired');
         if ($session['expiresAt'] <= microtime(true)*1000 && !in_array($session['state'], ['completed', 'canceled'])) {
+            if ($session['state'] === 'finalizing') {
+                $this->reconcile($session, $context);
+                if ($session['state'] === 'completed') return $session;
+            }
             $this->storage->abort($session, $context); $session['state'] = 'expired'; $this->sessions->save($session); $this->notify('expired', $session, $context);
             throw new UploadError(410, 'EXPIRED', 'Session expired');
         }

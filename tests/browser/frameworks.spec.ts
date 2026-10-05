@@ -64,13 +64,11 @@ for (const framework of ["react", "vue", "svelte", "angular", "astro"]) {
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
     await page.goto(`/frameworks/${framework}/`);
-    await page
-      .getByLabel("Select files")
-      .setInputFiles({
-        name: `cancel-${framework}.txt`,
-        mimeType: "text/plain",
-        buffer: Buffer.alloc(1024 * 1024, 67),
-      });
+    await page.getByLabel("Select files").setInputFiles({
+      name: `cancel-${framework}.txt`,
+      mimeType: "text/plain",
+      buffer: Buffer.alloc(1024 * 1024, 67),
+    });
     const row = page.locator("article.custom-row");
     await page.getByRole("button", { name: "Upload", exact: true }).click();
     await expect(row).toHaveAttribute("data-state", "uploading");
@@ -81,3 +79,40 @@ for (const framework of ["react", "vue", "svelte", "angular", "astro"]) {
     expect(errors).toEqual([]);
   });
 }
+
+test("React releases an owned store on replacement without destroying a borrowed store", async ({
+  page,
+}) => {
+  await page.goto("/frameworks/react/");
+  await expect
+    .poll(() => page.evaluate(() => !!(window as any).__auditOwned))
+    .toBe(true);
+  await page
+    .getByRole("button", { name: "Replace owned store", exact: true })
+    .click();
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        try {
+          (window as any).__auditOwned.setOptions({ disabled: true });
+          return false;
+        } catch {
+          return true;
+        }
+      }),
+    )
+    .toBe(true);
+  await page
+    .getByRole("button", { name: "Unmount borrowed root", exact: true })
+    .click();
+  expect(
+    await page.evaluate(() => {
+      try {
+        (window as any).__auditBorrowed.setOptions({ disabled: true });
+        return true;
+      } catch {
+        return false;
+      }
+    }),
+  ).toBe(true);
+});

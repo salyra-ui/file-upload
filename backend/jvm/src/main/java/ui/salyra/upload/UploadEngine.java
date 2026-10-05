@@ -176,6 +176,9 @@ public final class UploadEngine {
         if (!existing.path("descriptor").equals(descriptor))
           throw fail(409, "KEY_CONFLICT", "Key belongs to another file");
         if (existing.path("expiresAt").asLong() <= System.currentTimeMillis()
+            && existing.path("state").asText().equals("finalizing"))
+          reconcile(existing, context);
+        if (existing.path("expiresAt").asLong() <= System.currentTimeMillis()
             && !existing.path("state").asText().equals("completed"))
           throw fail(410, "EXPIRED", "Session expired");
         return JSON.createObjectNode()
@@ -208,6 +211,10 @@ public final class UploadEngine {
     if (state.equals("expired")) throw fail(410, "EXPIRED", "Session expired");
     if (session.path("expiresAt").asLong() <= System.currentTimeMillis()
         && !List.of("completed", "canceled").contains(state)) {
+      if (state.equals("finalizing")) {
+        reconcile(session, context);
+        if (session.path("state").asText().equals("completed")) return session;
+      }
       storage.abort(session, context);
       session.put("state", "expired");
       sessions.save(session);

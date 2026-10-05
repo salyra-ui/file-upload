@@ -141,6 +141,11 @@ func (e *Engine) CreateUpload(ctx context.Context, d Descriptor, key string) (*S
 		if !sameDescriptor(existing.Descriptor, d) {
 			return nil, fail(409, "KEY_CONFLICT", "Key belongs to another file")
 		}
+		if existing.ExpiresAt <= time.Now().UnixMilli() && existing.State == "finalizing" {
+			if err = e.reconcile(ctx, existing); err != nil {
+				return nil, err
+			}
+		}
 		if existing.ExpiresAt <= time.Now().UnixMilli() && existing.State != "completed" {
 			return nil, fail(410, "EXPIRED", "Session expired")
 		}
@@ -172,6 +177,14 @@ func (e *Engine) get(ctx context.Context, id, op string) (*Session, error) {
 		return nil, fail(410, "EXPIRED", "Session expired")
 	}
 	if s.ExpiresAt <= time.Now().UnixMilli() && s.State != "completed" && s.State != "canceled" {
+		if s.State == "finalizing" {
+			if err = e.reconcile(ctx, s); err != nil {
+				return nil, err
+			}
+			if s.State == "completed" {
+				return s, nil
+			}
+		}
 		if err = e.Options.Storage.Abort(ctx, s); err != nil {
 			return nil, err
 		}

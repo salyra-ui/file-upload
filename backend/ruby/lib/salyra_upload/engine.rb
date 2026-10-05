@@ -43,6 +43,7 @@ module SalyraUpload
         if existing
           authorize('create', existing, context)
           raise UploadError.new(409, 'KEY_CONFLICT', 'Key belongs to another file') unless existing['descriptor'] == descriptor
+          reconcile(existing, context) if existing['expiresAt'] <= Time.now.to_f * 1000 && existing['state'] == 'finalizing'
           raise UploadError.new(410, 'EXPIRED', 'Session expired') if existing['expiresAt'] <= Time.now.to_f * 1000 && existing['state'] != 'completed'
           next { 'id' => identifier, 'chunkSize' => descriptor['chunkSize'], 'expiresAt' => existing['expiresAt'] }
         end
@@ -59,6 +60,10 @@ module SalyraUpload
       authorize(operation, session, context)
       raise UploadError.new(410, 'EXPIRED', 'Session expired') if session['state'] == 'expired'
       if session['expiresAt'] <= Time.now.to_f * 1000 && !%w[completed canceled].include?(session['state'])
+        if session['state'] == 'finalizing'
+          reconcile(session, context)
+          return session if session['state'] == 'completed'
+        end
         storage.abort(session, context)
         session['state'] = 'expired'
         sessions.save(session)

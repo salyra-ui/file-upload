@@ -162,6 +162,8 @@ public sealed class UploadEngine(
             await Options.Authorize("create", existing, context);
             if (!JsonNode.DeepEquals(existing["descriptor"], descriptor))
                 throw Fail(409, "KEY_CONFLICT", "Key belongs to another file");
+            if (Number(existing, "expiresAt") <= Now() && Text(existing, "state") == "finalizing")
+                await Reconcile(existing, context);
             if (Number(existing, "expiresAt") <= Now() && Text(existing, "state") != "completed")
                 throw Fail(410, "EXPIRED", "Session expired");
             return new()
@@ -201,6 +203,11 @@ public sealed class UploadEngine(
             throw Fail(410, "EXPIRED", "Session expired");
         if (Number(session, "expiresAt") <= Now() && state is not ("completed" or "canceled"))
         {
+            if (state == "finalizing")
+            {
+                await Reconcile(session, context);
+                if (Text(session, "state") == "completed") return session;
+            }
             await Storage.Abort(session, context);
             session["state"] = "expired";
             await Sessions.Save(session, context.Cancellation);

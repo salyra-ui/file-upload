@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
 import type { Readable } from "node:stream";
 import type {
@@ -47,12 +48,38 @@ export function createUploadServer<Context = unknown>(
     storage.capabilities.minChunkSize > storage.capabilities.maxChunkSize
   )
     throw new RangeError("Storage capabilities have invalid limits");
+  const notifications = new AsyncLocalStorage<Array<() => Promise<void>>>();
+  async function transaction<T>(
+    key: string,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    if (notifications.getStore()) return sessions.transaction(key, operation);
+    const pending: Array<() => Promise<void>> = [];
+    try {
+      return await notifications.run(pending, () =>
+        sessions.transaction(key, operation),
+      );
+    } finally {
+      // Application observers run after storage locks have been released.
+      for (const deliver of pending) await deliver();
+    }
+  }
   async function event(
     type: "created" | "part-stored" | "completed" | "canceled" | "expired",
     session: ServerSession,
     context: Context | undefined,
     part?: StoredPart,
   ) {
+    const pending = notifications.getStore();
+    if (pending) {
+      const snapshot = {
+        ...session,
+        descriptor: { ...session.descriptor },
+        parts: session.parts.map((part) => ({ ...part })),
+      };
+      pending.push(() => event(type, snapshot, context, part && { ...part }));
+      return;
+    }
     // Notifications never turn a committed transfer into a failed request. Event IDs are stable for application outboxes.
     try {
       await options.onEvent?.(
@@ -85,6 +112,16 @@ export function createUploadServer<Context = unknown>(
       value.state !== "completed" &&
       value.state !== "canceled"
     ) {
+      if (value.state === "finalizing") {
+        const completed = await storage.inspectResult(value, context);
+        if (completed.found) {
+          value.state = "completed";
+          value.result = completed.result;
+          await sessions.put(value);
+          await event("completed", value, context);
+          return value;
+        }
+      }
       await storage.abort(value, context);
       value.state = "expired";
       await sessions.put(value);
@@ -181,26 +218,36 @@ export function createUploadServer<Context = unknown>(
         scopedKey = createHash("sha256")
           .update(JSON.stringify([scope, key]))
           .digest("hex");
-      return sessions.transaction(`create:${scopedKey}`, async () => {
+      return transaction(`create:${scopedKey}`, async () => {
         const existing = await sessions.get(scopedKey);
         if (existing) {
-          await options.authorize?.("create", existing, context);
-          if (canonical(existing.descriptor) !== canonical(descriptor))
-            return fail(
-              409,
-              "KEY_CONFLICT",
-              "This idempotency key belongs to another file",
-            );
-          if (
-            existing.state === "expired" ||
-            (existing.expiresAt <= Date.now() && existing.state !== "completed")
-          )
-            return fail(410, "EXPIRED", "Upload session expired");
-          return {
-            id: existing.id,
-            chunkSize: existing.descriptor.chunkSize,
-            expiresAt: existing.expiresAt,
-          };
+          return transaction(existing.id, async () => {
+            const current = await sessions.get(existing.id);
+            if (!current)
+              return fail(404, "NOT_FOUND", "Upload session was not found");
+            await options.authorize?.("create", current, context);
+            if (canonical(current.descriptor) !== canonical(descriptor))
+              return fail(
+                409,
+                "KEY_CONFLICT",
+                "This idempotency key belongs to another file",
+              );
+            if (
+              current.state === "finalizing" &&
+              current.expiresAt <= Date.now()
+            )
+              await reconcile(current, context);
+            if (
+              current.state === "expired" ||
+              (current.expiresAt <= Date.now() && current.state !== "completed")
+            )
+              return fail(410, "EXPIRED", "Upload session expired");
+            return {
+              id: current.id,
+              chunkSize: current.descriptor.chunkSize,
+              expiresAt: current.expiresAt,
+            };
+          });
         }
         const value: ServerSession = {
           id: scopedKey,
@@ -222,7 +269,7 @@ export function createUploadServer<Context = unknown>(
       });
     },
     async getUpload(id: string, context?: Context) {
-      return sessions.transaction(id, async () => {
+      return transaction(id, async () => {
         const value = await reconcile(
           await session(id, "probe", context),
           context,
@@ -242,7 +289,7 @@ export function createUploadServer<Context = unknown>(
       body: Readable,
       context?: Context,
     ) {
-      return sessions.transaction(id, async () => {
+      return transaction(id, async () => {
         let value = await session(id, "part", context);
         if (value.state === "finalizing")
           value = await reconcile(value, context);
@@ -312,7 +359,7 @@ export function createUploadServer<Context = unknown>(
       });
     },
     async finishUpload(id: string, context?: Context) {
-      return sessions.transaction(id, async () => {
+      return transaction(id, async () => {
         const value = await reconcile(
           await session(id, "complete", context),
           context,
@@ -345,7 +392,7 @@ export function createUploadServer<Context = unknown>(
       });
     },
     async cancelUpload(id: string, context?: Context) {
-      return sessions.transaction(id, async () => {
+      return transaction(id, async () => {
         const value = await reconcile(
           await session(id, "cancel", context),
           context,
@@ -370,12 +417,17 @@ export function createUploadServer<Context = unknown>(
           value.expiresAt <= Date.now() &&
           !["completed", "canceled", "expired"].includes(value.state)
         ) {
-          await sessions.transaction(value.id, async () => {
+          await transaction(value.id, async () => {
             const current = await sessions.get(value.id);
             if (
               current &&
+              current.expiresAt <= Date.now() &&
               !["completed", "canceled", "expired"].includes(current.state)
             ) {
+              if (current.state === "finalizing") {
+                const recovered = await reconcile(current, context);
+                if (recovered.state === "completed") return;
+              }
               await storage.abort(current, context);
               current.state = "expired";
               await sessions.put(current);

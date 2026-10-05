@@ -69,6 +69,11 @@ defmodule SalyraUpload.Engine do
           if existing["descriptor"] != descriptor,
             do: fail(409, "KEY_CONFLICT", "Key belongs to another file")
 
+          existing =
+            if existing["expiresAt"] <= now() and existing["state"] == "finalizing",
+              do: reconcile(engine, existing, context),
+              else: existing
+
           if existing["expiresAt"] <= now() and existing["state"] != "completed",
             do: fail(410, "EXPIRED", "Session expired")
 
@@ -99,6 +104,13 @@ defmodule SalyraUpload.Engine do
 
     authorize(engine, operation, session, context)
     if session["state"] == "expired", do: fail(410, "EXPIRED", "Session expired")
+
+    session =
+      if session["expiresAt"] <= now() and session["state"] == "finalizing" do
+        reconcile(engine, session, context)
+      else
+        session
+      end
 
     if session["expiresAt"] <= now() and session["state"] not in ["completed", "canceled"] do
       call(engine.storage, :abort, [session, context])

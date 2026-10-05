@@ -113,6 +113,8 @@ export function createUploader(options: UploaderOptions): UploaderStore {
     saveChain = Promise.resolve(),
     restoreTask: Promise<void> | undefined;
   let idsSnapshot = "";
+  let pendingSave: PersistenceSnapshot | undefined;
+  let saving = false;
   function assertAlive() {
     if (destroyed) throw new Error("Uploader is destroyed");
   }
@@ -163,14 +165,28 @@ export function createUploader(options: UploaderOptions): UploaderStore {
         },
       })),
     };
-    saveChain = saveChain
-      .then(() => adapter.save(snapshot))
-      .catch((error) => {
-        if (!destroyed) {
-          state = { ...state, persistenceError: errorValue(error) };
-          notify();
+    pendingSave = snapshot;
+    if (saving) return;
+    saving = true;
+    saveChain = saveChain.then(async () => {
+      try {
+        // Retain the newest pending checkpoint instead of queueing every intermediate snapshot.
+        while (pendingSave) {
+          const next = pendingSave;
+          pendingSave = undefined;
+          try {
+            await adapter.save(next);
+          } catch (error) {
+            if (!destroyed) {
+              state = { ...state, persistenceError: errorValue(error) };
+              notify();
+            }
+          }
         }
-      });
+      } finally {
+        saving = false;
+      }
+    });
   }
   function patch(
     id: string,
@@ -1018,13 +1034,28 @@ export function createUploader(options: UploaderOptions): UploaderStore {
       if (!mutable()) return;
       const item = getItem(id);
       if (!item) throw new Error("Unknown upload");
+      if (item.status === "completed")
+        throw new TransferError("The upload is already completed", "COMPLETED");
+      if (item.status === "expired")
+        throw new TransferError(
+          "Reset the expired transfer before selecting its file",
+          "EXPIRED",
+        );
       if (runs.has(id))
         throw new Error("Pause the transfer before replacing its file");
       if (file.name !== item.metadata.name || file.size !== item.totalBytes)
         throw new TransferError("Select the original file", "FILE_MISMATCH");
       // Content identity is verified against every server receipt during resume.
       validated.delete(id);
-      patch(id, { file, status: "paused", error: undefined }, true);
+      stop(
+        id,
+        {
+          file,
+          status: item.status === "canceled" ? "canceled" : "paused",
+          error: undefined,
+        },
+        true,
+      );
     },
     start(id) {
       assertAlive();

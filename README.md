@@ -28,7 +28,8 @@ npm test
 npm run build
 node scripts/consumer.mjs
 node scripts/framework-browser.mjs
-npx playwright install chromium
+node --import tsx scripts/stress.ts
+npx playwright install chromium firefox webkit
 npm run test:browser
 ```
 
@@ -45,6 +46,6 @@ The build creates separate packages under `release/`. Each archive contains `dis
 - `examples`: working browser compositions
 - `tests`: real transfers, fault cases, provider responses and browser interaction
 
-[Client guide](packages/file-uploader/README.md) · [Node server](packages/upload-server/README.md) · [Backend integrations](backend/README.md) · [Protocol](protocol/README.md)
+[Audit and measured limits](AUDIT.md) · [Client guide](packages/file-uploader/README.md) · [Node server](packages/upload-server/README.md) · [Backend integrations](backend/README.md) · [Protocol](protocol/README.md)
 
-Run `npm run test:native -- go` (or another language from the backend table) to build its server in Docker, execute the shared protocol tests and recover a saved upload after a server restart. The script removes its own container when it finishes.
+Run `npm run test:native -- go` (or another language from the backend table) to build its server in Docker, execute the shared protocol tests and recover a saved upload after a server restart, and recover a committed result whose ledger expired. The script removes its own container when it finishes.

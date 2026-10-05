@@ -1,6 +1,9 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-import { FileUploader } from "../../packages/file-uploader/src/react";
+import {
+  FileUploader,
+  useUploaderStore,
+} from "../../packages/file-uploader/src/react";
 import { createUploader } from "../../packages/file-uploader/src/core";
 import { chunkedTransport } from "../../packages/file-uploader/src/transport/chunked";
 const store = createUploader({
@@ -49,8 +52,40 @@ const App = () => (
     </FileUploader.List>
   </FileUploader.Root>
 );
+const lifecycleBorrowed = createUploader({
+  transport: chunkedTransport({ baseURL: "/uploads" }),
+});
+const lifecycleOptions = {
+  transport: chunkedTransport({ baseURL: "/uploads" }),
+};
+function RecordLifecycleStore() {
+  const active = useUploaderStore();
+  React.useEffect(() => {
+    if (active !== lifecycleBorrowed) (window as any).__auditOwned = active;
+    (window as any).__auditBorrowed = lifecycleBorrowed;
+  }, [active]);
+  return null;
+}
+function Lifecycle() {
+  const [mode, setMode] = React.useState("owned");
+  return (
+    <section aria-label="Root lifecycle">
+      <button onClick={() => setMode("borrowed")}>Replace owned store</button>
+      <button onClick={() => setMode("none")}>Unmount borrowed root</button>
+      {mode !== "none" && (
+        <FileUploader.Root
+          store={mode === "borrowed" ? lifecycleBorrowed : undefined}
+          options={lifecycleOptions}
+        >
+          <RecordLifecycleStore />
+        </FileUploader.Root>
+      )}
+    </section>
+  );
+}
 createRoot(document.getElementById("app")!).render(
   <React.StrictMode>
     <App />
+    <Lifecycle />
   </React.StrictMode>,
 );

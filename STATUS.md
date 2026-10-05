@@ -17,22 +17,24 @@ The browser and Node packages are built locally. Registry publication is a separ
 
 ## Verification
 
-| Check                | Result                                                                                                                                                                                               |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| TypeScript           | Browser engine, adapters, Node server, local examples and test scripts compile                                                                                                                       |
-| Frameworks           | Svelte and Astro compile, Angular partial compilation passes, React and Vue SSR isolate stores                                                                                                       |
-| Public recipes       | All 54 framework/example combinations parse or compile                                                                                                                                               |
-| Unit and fault cases | 24 tests pass, including interrupted responses, retry, persistence, cleanup, provider responses and per-item notification behavior                                                                   |
-| Browser interaction  | 25 tests pass against the real local Node server, including five compiled framework adapters, refresh/reselect, completed-file deletion and Cancel → Retry across all compositions                   |
-| Documentation        | 25 tests pass across the existing component catalog, uploader guide, browser simulation, mobile layouts, downloads and immutable version links                                                       |
-| Package consumer     | Fresh installs of the actual npm archives compile with NodeNext and run without unrequested framework or provider peers. React, Vue and Angular adapter types also compile with their selected peers |
-| Native HTTP protocol | Nine running backend engines pass the same compatibility suite                                                                                                                                       |
-| Process restart      | Saved parts survive a server restart in all nine backend engines and finish with the same session ID                                                                                                 |
-| JVM bridges          | Kotlin and Scala integration projects compile against the Java engine                                                                                                                                |
-| C/C++ ownership      | C and C++ tests pass with AddressSanitizer and UndefinedBehaviorSanitizer                                                                                                                            |
-| Build contents       | npm archives contain dist, package.json, README and LICENSE. No sourcemaps or source-map references                                                                                                  |
+| Check                | Result                                                                                                                                                                                                                    |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| TypeScript           | Browser engine, adapters, Node server, local examples and test scripts compile                                                                                                                                            |
+| Frameworks           | Svelte and Astro compile, Angular partial compilation passes, React and Vue SSR isolate stores                                                                                                                            |
+| Public recipes       | All 54 framework/example combinations parse or compile                                                                                                                                                                    |
+| Unit and fault cases | 46 tests pass, including interrupted responses, retry, persistence, cleanup, provider responses and per-item notification behavior                                                                                        |
+| Browser interaction  | 28 scenarios per browser pass in Chromium and WebKit against the real local Node server, including five compiled framework adapters, refresh/reselect, completed-file deletion and Cancel → Retry across all compositions |
+| Documentation        | 29 tests pass across the existing component catalog, uploader guide, browser simulation, mobile layouts, downloads and immutable version links                                                                            |
+| Package consumer     | Fresh installs of the actual npm archives compile with NodeNext and run without unrequested framework or provider peers. React, Vue and Angular adapter types also compile with their selected peers                      |
+| Native HTTP protocol | Nine running backend engines pass the same compatibility suite                                                                                                                                                            |
+| Process restart      | Saved parts survive a server restart in all nine backend engines and finish with the same session ID                                                                                                                      |
+| JVM bridges          | Kotlin and Scala integration projects compile against the Java engine                                                                                                                                                     |
+| C/C++ ownership      | C and C++ tests pass with AddressSanitizer and UndefinedBehaviorSanitizer                                                                                                                                                 |
+| Build contents       | npm archives contain dist, package.json, README and LICENSE. No sourcemaps or source-map references                                                                                                                       |
 
 The production documentation build uses `/docs/`, matching GitHub Pages. Its downloadable Vanilla files include standard and minified JavaScript and CSS. Framework JavaScript is minified. Svelte and Astro retain compact compiler inputs, which their toolchains require.
+
+The follow-up [audit report](AUDIT.md) records the corrected races, browser coverage, 2 GiB transfer measurements and deployment limits. Firefox is checked by the Linux CI workflow because its local macOS binary fails before page launch.
 
 ## Deployment boundaries
 
@@ -57,7 +59,8 @@ npm test
 npm run build
 node scripts/consumer.mjs
 node scripts/framework-browser.mjs
-npx playwright install chromium
+node --import tsx scripts/stress.ts
+npx playwright install chromium firefox webkit
 npm run test:browser
 npm run test:native -- go
 ```

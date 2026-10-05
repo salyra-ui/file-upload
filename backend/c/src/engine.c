@@ -118,6 +118,8 @@ upload_engine *upload_engine_new(const upload_options *options) {
   return engine;
 }
 void upload_engine_free(upload_engine *engine) { free(engine); }
+static int reconcile(upload_engine *engine, cJSON *session, void *context,
+                     upload_error *error);
 static int get(upload_engine *engine, const char *id, const char *operation,
                void *context, cJSON **out, upload_error *error) {
   char *json = NULL;
@@ -143,6 +145,11 @@ static int get(upload_engine *engine, const char *id, const char *operation,
   }
   if ((uint64_t)u_number(session, "expiresAt") <= now() &&
       strcmp(state, "completed") && strcmp(state, "canceled")) {
+    if (!strcmp(state, "finalizing")) {
+      status = reconcile(engine, session, context, error);
+      if (status) { cJSON_Delete(session); return status; }
+      if (!strcmp(u_string(session, "state"), "completed")) { *out = session; return 0; }
+    }
     char *raw = u_json(session);
     status = engine->options.storage.abort(engine->options.storage.data, raw,
                                            context, error);
@@ -282,6 +289,11 @@ int upload_create(upload_engine *engine, const char *descriptor,
       status =
           u_error(error, 409, "KEY_CONFLICT", "Key belongs to another file");
       goto done;
+    }
+    if ((uint64_t)u_number(session, "expiresAt") <= now() &&
+        !strcmp(u_string(session, "state"), "finalizing")) {
+      status = reconcile(engine, session, context, error);
+      if (status) goto done;
     }
     if ((uint64_t)u_number(session, "expiresAt") <= now() &&
         strcmp(u_string(session, "state"), "completed")) {

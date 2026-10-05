@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, type ReactNode } from "react";
+import { useEffect, useMemo, type ReactNode } from "react";
 import {
   createUploader,
   type UploaderOptions,
@@ -22,18 +22,18 @@ export function Root({ store, options, children, restore = true }: RootProps) {
     () => ({ store: owned, inputs: new Set<HTMLInputElement>() }),
     [owned],
   );
-  const lifecycle = useRef(0);
+  const lifecycle = useMemo(() => ({ generation: 0 }), [owned]);
   useEffect(() => {
-    lifecycle.current++;
+    lifecycle.generation++;
     if (restore) void owned.restore();
     return () => {
-      const ticket = ++lifecycle.current;
+      const ticket = ++lifecycle.generation;
       if (!store)
         queueMicrotask(() => {
-          if (lifecycle.current === ticket) owned.destroy();
+          if (lifecycle.generation === ticket) owned.destroy();
         });
     };
-  }, [owned, store, restore]);
+  }, [owned, store, restore, lifecycle]);
   return (
     <UploaderContext.Provider value={value}>
       {children}

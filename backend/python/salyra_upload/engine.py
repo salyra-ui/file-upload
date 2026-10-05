@@ -106,6 +106,8 @@ class UploadEngine:
                     raise UploadError(
                         409, "KEY_CONFLICT", "Key belongs to another file"
                     )
+                if existing["expiresAt"] <= time.time() * 1000 and existing["state"] == "finalizing":
+                    self._reconcile(existing, context)
                 if (
                     existing["expiresAt"] <= time.time() * 1000
                     and existing["state"] != "completed"
@@ -143,6 +145,10 @@ class UploadEngine:
             "completed",
             "canceled",
         ):
+            if session["state"] == "finalizing":
+                self._reconcile(session, context)
+                if session["state"] == "completed":
+                    return session
             self.storage.abort(session, context)
             session["state"] = "expired"
             self.sessions.save(session)

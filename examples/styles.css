@@ -148,6 +148,9 @@ main {
   gap: 0;
   padding-right: 10px;
 }
+.view-tabs {
+  display: flex;
+}
 .toolbar button {
   border: 0;
   border-right: 1px solid var(--rule);
@@ -312,7 +315,7 @@ main {
 }
 .empty {
   padding: 22px 0;
-  color: #777;
+  color: #666;
   font-size: 14px;
 }
 .code-panel {

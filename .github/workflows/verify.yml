@@ -18,10 +18,11 @@ jobs:
       - run: npm run check:frameworks
       - run: npm run check:examples
       - run: npm test
+      - run: node --import tsx scripts/stress.ts
       - run: npm run build
       - run: node scripts/consumer.mjs
       - run: node scripts/framework-browser.mjs
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install --with-deps chromium firefox webkit
       - run: npm run test:browser
       - uses: actions/upload-artifact@v4
         if: failure()

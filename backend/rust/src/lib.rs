@@ -170,7 +170,7 @@ impl Engine {
             Sha256::digest(serde_json::to_vec(&json!([(self.options.scope)(c), key]))?)
         );
         let _lease = self.sessions.lock(&id, c)?;
-        if let Some(existing) = self.sessions.get(&id)? {
+        if let Some(mut existing) = self.sessions.get(&id)? {
             (self.options.authorize)("create", Some(&existing), c)?;
             if existing.descriptor != d {
                 return Err(Error::new(
@@ -179,6 +179,9 @@ impl Engine {
                     "Key belongs to another file",
                 ));
             };
+            if existing.expires_at <= now() && existing.state == "finalizing" {
+                self.reconcile(&mut existing, c)?;
+            }
             if existing.expires_at <= now() && existing.state != "completed" {
                 return Err(Error::new(410, "EXPIRED", "Session expired"));
             };
@@ -208,6 +211,12 @@ impl Engine {
             return Err(Error::new(410, "EXPIRED", "Session expired"));
         };
         if s.expires_at <= now() && s.state != "completed" && s.state != "canceled" {
+            if s.state == "finalizing" {
+                self.reconcile(&mut s, c)?;
+                if s.state == "completed" {
+                    return Ok(s);
+                }
+            }
             self.storage.abort(&s, c)?;
             s.state = "expired".into();
             self.sessions.save(&s)?;

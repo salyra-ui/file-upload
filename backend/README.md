@@ -36,7 +36,7 @@ Call the engine's create, probe, part, finish and cancel operations from your ow
 
 Creation uses a stable idempotency key scoped to the application/user. Access to an existing session is still authorized on every operation. A completed-file list and deletion route belong to the application's catalog, not the temporary-session engine.
 
-Notification IDs are stable per session and event, including the part number for part events. Notifications occur after the relevant storage commit. A reliable business workflow should write to an application outbox with these IDs. A callback alone is not a durable delivery guarantee.
+Notification IDs are stable per session and event, including the part number for part events. Notifications occur after the relevant storage commit. A reliable business workflow should write to an application outbox with these IDs. A callback alone is not a durable delivery guarantee. Native notification callbacks may run while the session lock is held. Keep them short, enqueue work in an application outbox, and do not call engine operations from the callback. The Node engine delivers onEvent after releasing its locks.
 
 ## Compatibility checks
 
