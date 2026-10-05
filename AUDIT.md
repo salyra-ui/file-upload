@@ -20,7 +20,7 @@ Audited on 5 October 2026, on the `feat/file-uploader` branch. This report cover
 - 46 unit/fault tests, including 12 late-response cases across Pause, Cancel and Reset during Create, Probe, Upload and Complete.
 - A 1,000-file queue drains while keeping the shared request count at four.
 - 28 interaction scenarios per browser cover the five compiled framework adapters, Vanilla examples, refresh/reselect, cancellation, deletion, ownership and keyboard controls.
-- Local Chromium and WebKit runs pass. Firefox's macOS binary fails before opening a page with `Could not find profile folder`. The Linux CI workflow runs Chromium, Firefox and WebKit and is the separate Firefox verification gate.
+- Local Chromium and WebKit runs pass. The Linux CI browser job also passes all 84 scenarios across Chromium, Firefox and WebKit. Firefox's macOS binary fails before opening a page with `Could not find profile folder`, so its verification uses Linux.
 - Nine native engines pass the shared HTTP suite, real process-restart recovery and recovery of a published file whose finalizing ledger has expired. Kotlin and Scala bridge builds and C/C++ sanitizer tests run in that matrix.
 - All 54 public example recipes parse or compile. Framework compilation and SSR isolation checks pass.
 - Fresh installs of both release archives compile and execute without unrequested framework or provider peers. Archives contain dist and package metadata, with no source maps or source-map references.

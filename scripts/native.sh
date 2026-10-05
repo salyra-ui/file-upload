@@ -17,7 +17,13 @@ case "$language" in
   *) echo "Unknown language: $language" >&2; exit 1 ;;
 esac
 data=$(mktemp -d)
-trap 'docker rm -f "$container" >/dev/null 2>&1 || true; rm -rf "$data"' EXIT
+cleanup() {
+  # Remove root-owned container fixtures inside their private bind mount.
+  docker exec "$container" sh -c 'find /upload-data -mindepth 1 -delete' >/dev/null 2>&1 || true
+  docker rm -f "$container" >/dev/null 2>&1 || true
+  rm -rf "$data"
+}
+trap cleanup EXIT
 mkdir -p "$root/artifacts"
 fixture="$root/artifacts/restart-$language.json"
 docker run -d --name "$container" -p "127.0.0.1:$port:4335" -v "$data:/upload-data" -e UPLOAD_DIRECTORY=/upload-data -e HOST=0.0.0.0 -e PORT=4335 -e ASPNETCORE_URLS=http://0.0.0.0:4335 -v "$root/backend/$directory:/workspace" -w /workspace "$image" sh -c "$command" >/dev/null
@@ -36,4 +42,4 @@ docker restart "$container" >/dev/null
 ready
 node --import tsx "$root/scripts/restart.ts" recover "http://127.0.0.1:$port/uploads" "$fixture"
 
-node --import tsx "$root/scripts/restart.ts" expire "http://127.0.0.1:$port/uploads" "$fixture" "$data"
+node --import tsx "$root/scripts/restart.ts" expire "http://127.0.0.1:$port/uploads" "$fixture" "$data" "$container"

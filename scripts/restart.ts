@@ -1,8 +1,9 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import assert from "node:assert/strict";
-const [mode, base, path, directory] = process.argv.slice(2);
+const [mode, base, path, directory, container] = process.argv.slice(2);
 const digest = (body: string) =>
   createHash("sha256").update(body).digest("hex");
 async function request(url: string, init?: RequestInit) {
@@ -61,26 +62,43 @@ if (mode === "prepare") {
   // Simulate a crash after publishing the result but before committing the ledger.
   // Test fixtures share these keys, not a portable persistence format.
   const { key, metadata, session } = JSON.parse(await readFile(path, "utf8"));
-  const ledgerPath = join(directory, "sessions", session.id + ".json");
+  const remoteLedger = `/upload-data/sessions/${session.id}.json`;
+  const ledgerPath = container
+    ? path + ".ledger.json"
+    : join(directory, "sessions", session.id + ".json");
+  // Docker owns its private fixture files on Linux. Copy through Docker without
+  // changing the server's production filesystem permissions.
+  if (container)
+    execFileSync("docker", ["cp", `${container}:${remoteLedger}`, ledgerPath]);
+  const saveLedger = async (ledger: unknown) => {
+    await writeFile(ledgerPath, JSON.stringify(ledger));
+    if (container)
+      execFileSync("docker", [
+        "cp",
+        ledgerPath,
+        `${container}:${remoteLedger}`,
+      ]);
+  };
   const ledger = JSON.parse(await readFile(ledgerPath, "utf8"));
   assert.equal(ledger.state, "completed");
   ledger.state = "finalizing";
   ledger.result = null;
   ledger.expiresAt = Date.now() - 1000;
-  await writeFile(ledgerPath, JSON.stringify(ledger));
+  await saveLedger(ledger);
   const recreated = await request("", {
     method: "POST",
     headers: { "Content-Type": "application/json", "Idempotency-Key": key },
     body: JSON.stringify(metadata),
   });
   assert.equal(recreated.id, session.id);
-  await writeFile(ledgerPath, JSON.stringify(ledger));
+  await saveLedger(ledger);
   const recovered = await request(`/${session.id}`);
   assert.equal(recovered.status, "completed");
   assert.equal(recovered.result.size, 8);
   const canceled = await fetch(base + `/${session.id}`, { method: "DELETE" });
   assert.equal(canceled.status, 409);
   assert.equal((await canceled.json()).code, "COMPLETED");
+  if (container) await rm(ledgerPath, { force: true });
   console.log(`Expired finalization recovery passed for ${base}`);
 } else
   throw new Error(
