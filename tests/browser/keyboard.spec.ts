@@ -39,18 +39,21 @@ test("a native trigger opens file selection with the keyboard and upload stays o
 }) => {
   await page.goto("/");
   const root = page.locator("#chunked");
-  await root.locator("[data-upload-trigger]").focus();
-  const dialog = page.waitForEvent("filechooser");
-  await page.keyboard.press("Enter");
-  await (
-    await dialog
-  ).setFiles({
+  const trigger = root.locator("[data-upload-trigger]");
+  await expect(root.locator("[data-upload-root]")).toBeVisible();
+  await expect(trigger).toBeEnabled();
+  const [dialog] = await Promise.all([
+    page.waitForEvent("filechooser"),
+    trigger.press("Enter"),
+  ]);
+  await dialog.setFiles({
     name: "keyboard.txt",
     mimeType: "text/plain",
     buffer: Buffer.from("keyboard"),
   });
-  await root.getByRole("button", { name: "Upload files", exact: true }).focus();
-  await page.keyboard.press("Space");
+  await root
+    .getByRole("button", { name: "Upload files", exact: true })
+    .press("Space");
   await expect(root.locator(".file-status")).toHaveText("completed");
   await expect(
     root.getByRole("progressbar", { name: "Upload progress", exact: true }),

@@ -1,6 +1,7 @@
 name: Verify packages and upload protocol
 on:
   push:
+    branches: [main]
   pull_request:
 permissions:
   contents: read
