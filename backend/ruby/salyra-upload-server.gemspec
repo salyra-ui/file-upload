@@ -7,6 +7,6 @@ Gem::Specification.new do |spec|
   spec.required_ruby_version = '>= 3.1'
   spec.files = Dir['lib/**/*.rb'] + ['README.md', 'LICENSE']
   spec.homepage = 'https://salyra-ui.github.io/docs/upload-server.html'
-  spec.metadata = { 'source_code_uri' => 'https://github.com/salyra-ui/file-uploader', 'documentation_uri' => spec.homepage }
+  spec.metadata = { 'source_code_uri' => 'https://github.com/salyra-ui/file-upload', 'documentation_uri' => spec.homepage }
   spec.require_paths = ['lib']
 end

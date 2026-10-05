@@ -133,3 +133,70 @@ test("removing an uploaded file preserves its session and handles a missing down
   );
   expect((await request.get("/demo/history")).ok()).toBe(true);
 });
+
+for (const example of [
+  "http",
+  "chunked",
+  "resume",
+  "retry",
+  "parallel",
+  "indeterminate",
+  "gallery",
+  "limits",
+]) {
+  test(`${example} can cancel and retry without an error flash`, async ({
+    page,
+  }) => {
+    await page.goto("/");
+    const root = page.locator("#" + example);
+    // Block the real request until the UI has canceled it, including the single-request endpoint.
+    await page.route(
+      "**/demo/http",
+      (route) =>
+        new Promise<void>((resolve) => {
+          setTimeout(() => {
+            void route
+              .continue()
+              .catch(() => {})
+              .finally(resolve);
+          }, 250);
+        }),
+    );
+    await root
+      .locator("[data-upload-input]")
+      .setInputFiles({
+        name: "cancel-" + example + ".png",
+        mimeType: "image/png",
+        buffer: Buffer.alloc(1024 * 1024, 65),
+      });
+    const row = root.locator(".file-row");
+    await row.evaluate((element) => {
+      const seen: string[] = [];
+      (window as any).__cancelErrors = seen;
+      new MutationObserver(() => {
+        const text = element.querySelector("[data-item-error]")?.textContent;
+        if (text) seen.push(text);
+      }).observe(element, {
+        subtree: true,
+        childList: true,
+        characterData: true,
+      });
+    });
+    await root
+      .getByRole("button", { name: "Upload files", exact: true })
+      .click();
+    await expect(row.locator(".file-status")).toHaveText("uploading");
+    await row.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(row.locator(".file-status")).toHaveText("canceled");
+    await expect(
+      row.getByRole("button", { name: "Retry", exact: true }),
+    ).toBeVisible();
+    await expect(root.locator(".cleanups")).toBeEmpty();
+    await row.getByRole("button", { name: "Retry", exact: true }).click();
+    await expect(row.locator(".file-status")).toHaveText("completed");
+    expect(await page.evaluate(() => (window as any).__cancelErrors)).toEqual(
+      [],
+    );
+    await expect(root.locator(".cleanups")).toBeEmpty();
+  });
+}

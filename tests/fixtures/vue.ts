@@ -54,6 +54,16 @@ createApp({
                         h(FileUploader.Name),
                         h(FileUploader.Status),
                         h(
+                          FileUploader.Action,
+                          { action: "cancel" },
+                          { default: () => "Cancel" },
+                        ),
+                        h(
+                          FileUploader.Action,
+                          { action: "retry" },
+                          { default: () => "Retry" },
+                        ),
+                        h(
                           FileUploader.Progress,
                           { "aria-label": "Upload progress" },
                           {

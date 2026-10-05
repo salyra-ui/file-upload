@@ -30,4 +30,4 @@ Call `createUpload`, `getUpload`, `receivePart`, `finishUpload` and `cancelUploa
 
 `/s3` exports `s3Storage` and `r2Storage`. Install `@aws-sdk/client-s3` for these adapters and supply a persistent receipt journal. Provider SDKs are excluded from the core server entry.
 
-[Documentation](https://salyra-ui.github.io/docs/upload-server.html) · [Protocol](https://github.com/salyra-ui/file-uploader/blob/main/protocol/README.md)
+[Documentation](https://salyra-ui.github.io/docs/upload-server.html) · [Protocol](https://github.com/salyra-ui/file-upload/blob/main/protocol/README.md)

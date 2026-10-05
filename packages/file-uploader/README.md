@@ -42,4 +42,6 @@ CSS is optional. The package does not install global styles automatically. Impor
 
 Use `httpTransport` for a single request. It retries from the beginning. Use `chunkedTransport` with a compatible server for verified resume. Backend code is distributed separately.
 
+Pause keeps the session for Resume. Cancel stops the transfer and cleans up the old session when a cleanup handler is available. Retry starts a canceled file again from the beginning, with a new session. For single-request HTTP, provide `onCancel` when your endpoint needs a separate cleanup request.
+
 [Documentation](https://salyra-ui.github.io/docs/file-uploader.html) · [Server integration](https://salyra-ui.github.io/docs/upload-server.html)

@@ -34,6 +34,8 @@ const App = () => (
           >
             <FileUploader.Name />
             <FileUploader.Status />
+            <FileUploader.Action action="cancel">Cancel</FileUploader.Action>
+            <FileUploader.Action action="retry">Retry</FileUploader.Action>
             <FileUploader.Progress aria-label="Upload progress">
               {(item) =>
                 item.progress === null

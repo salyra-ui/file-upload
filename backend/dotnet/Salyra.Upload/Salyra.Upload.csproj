@@ -10,7 +10,7 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageProjectUrl>https://salyra-ui.github.io/docs/upload-server.html</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/salyra-ui/file-uploader</RepositoryUrl>
+    <RepositoryUrl>https://github.com/salyra-ui/file-upload</RepositoryUrl>
   </PropertyGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />

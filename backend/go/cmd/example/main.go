@@ -1,7 +1,7 @@
 package main
 
 import (
-	upload "github.com/salyra-ui/file-uploader/backend/go"
+	upload "github.com/salyra-ui/file-upload/backend/go"
 	"log"
 	"net/http"
 	"os"

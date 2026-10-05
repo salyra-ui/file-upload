@@ -8,6 +8,7 @@ import { createHash } from "node:crypto";
 import {
   createUploader,
   TransferError,
+  uploadActions,
   type UploadTransport,
   type UploadPersistence,
   type PersistenceSnapshot,
@@ -118,6 +119,133 @@ const descriptor = {
   chunkSize: 4,
 };
 describe("actual HTTP transfers and durable storage", () => {
+  it("retries a canceled transfer on a fresh session while old cleanup is pending", async () => {
+    const f = await fixture(),
+      remote = chunkedTransport({ baseURL: f.url });
+    let release!: () => void;
+    const cleanupGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const failures: string[] = [];
+    const store = createUploader({
+      chunkSize: 4,
+      transport: {
+        ...remote,
+        async upload(session, ctx) {
+          if (
+            ctx.index === 1 &&
+            store.getItem(id)?.session?.id === oldSession
+          ) {
+            await new Promise<void>((_, reject) =>
+              ctx.signal.addEventListener(
+                "abort",
+                () => reject(new Error("Late request failure")),
+                { once: true },
+              ),
+            );
+          }
+          return remote.upload(session, ctx);
+        },
+        async terminate(session, ctx) {
+          await cleanupGate;
+          await remote.terminate!(session, ctx);
+        },
+      },
+      onError: (error) => {
+        failures.push(error.message);
+      },
+    });
+    const [id] = await store.add([file()]);
+    let oldSession = "";
+    const observed: { status: string; error?: string }[] = [];
+    store.subscribeItem(id, () => {
+      const item = store.getItem(id)!;
+      oldSession ||= item.session?.id ?? "";
+      observed.push({ status: item.status, error: item.error?.message });
+    });
+    store.start(id);
+    await waitUntil(() => store.getItem(id)!.parts.length === 1);
+    const oldKey = store.getItem(id)!.requestKey;
+    const cancel = store.cancel(id);
+    expect(store.getItem(id)!.status).toBe("canceled");
+    expect(store.getItem(id)!.error).toBeUndefined();
+    expect(uploadActions(store.getItem(id)!)).toMatchObject({
+      canRetry: true,
+      canStart: true,
+    });
+    store.retry(id);
+    expect(store.getItem(id)!.requestKey).not.toBe(oldKey);
+    expect(store.getItem(id)!.session).toBeUndefined();
+    expect(store.getItem(id)!.parts).toEqual([]);
+    expect(store.getItem(id)!.uploadedBytes).toBe(0);
+    await waitUntil(() => store.getItem(id)!.status === "completed");
+    const newSession = store.getItem(id)!.session!.id;
+    expect(newSession).not.toBe(oldSession);
+    release();
+    await cancel;
+    expect((await f.engine.getUpload(oldSession)).status).toBe("canceled");
+    expect((await f.engine.getUpload(newSession)).status).toBe("completed");
+    expect(
+      observed.some((item) => item.status === "failed" || item.error),
+    ).toBe(false);
+    expect(failures).toEqual([]);
+    expect(store.getSnapshot().cleanups).toEqual([]);
+    store.destroy();
+  });
+  it("revalidates a canceled selection before retrying and ignores its old validation", async () => {
+    let finishOld!: () => void;
+    let validations = 0,
+      sends = 0;
+    const oldValidation = new Promise<void>((resolve) => {
+      finishOld = resolve;
+    });
+    const store = createUploader({
+      transport: {
+        capabilities: {
+          resume: false,
+          progress: false,
+          parallelParts: false,
+          checksums: false,
+          terminate: false,
+        },
+        async create(ctx) {
+          sends++;
+          return { id: ctx.requestKey, chunkSize: 100 };
+        },
+        async probe() {
+          throw new Error("No resume");
+        },
+        async upload(_, ctx) {
+          return { index: 0, size: ctx.blob.size, sha256: "" };
+        },
+        async complete() {
+          return {};
+        },
+      },
+      async validateFile() {
+        validations++;
+        if (validations === 1) await oldValidation;
+        else return "Rejected by validation";
+      },
+    });
+    const pendingAdd = store.add([file()]);
+    await waitUntil(() => validations === 1);
+    const id = store.getSnapshot().items[0].id;
+    await store.cancel(id);
+    store.retry(id);
+    await waitUntil(() => store.getItem(id)!.status === "failed");
+    expect(store.getItem(id)!.error?.code).toBe("VALIDATION");
+    finishOld();
+    await pendingAdd;
+    expect(store.getItem(id)!.status).toBe("failed");
+    expect(sends).toBe(0);
+    await store.reset(id);
+    store.start(id);
+    await waitUntil(() => store.getItem(id)!.status === "failed");
+    expect(sends).toBe(0);
+    store.destroy();
+  });
+
   it("reconciles a saved part and completed result when their responses are lost", async () => {
     const f = await fixture({ losePart: true, loseFinish: true });
     const store = createUploader({

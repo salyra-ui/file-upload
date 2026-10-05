@@ -10,4 +10,4 @@ license = "MIT"
 readme = "README.md"
 [project.urls]
 Documentation = "https://salyra-ui.github.io/docs/upload-server.html"
-Source = "https://github.com/salyra-ui/file-uploader"
+Source = "https://github.com/salyra-ui/file-upload"

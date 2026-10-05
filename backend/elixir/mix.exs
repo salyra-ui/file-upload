@@ -14,7 +14,7 @@ defmodule SalyraUpload.MixProject do
       description: "Streaming upload sessions with configurable storage",
       package: [
         licenses: ["MIT"],
-        links: %{"GitHub" => "https://github.com/salyra-ui/file-uploader"}
+        links: %{"GitHub" => "https://github.com/salyra-ui/file-upload"}
       ]
     ]
   end

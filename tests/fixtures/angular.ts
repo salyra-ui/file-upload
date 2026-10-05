@@ -36,6 +36,8 @@ import { chunkedTransport } from "../../packages/file-uploader/src/transport/chu
       @for (id of list.ids(); track id) {
         <article [uploadItem]="id" #item="uploadItem" class="custom-row">
           <span uploadName></span><span uploadStatus></span>
+          <button type="button" uploadAction="cancel">Cancel</button
+          ><button type="button" uploadAction="retry">Retry</button>
           <div uploadProgress aria-label="Upload progress">
             {{ item.value()?.progress }}%
           </div>

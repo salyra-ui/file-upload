@@ -6,13 +6,11 @@ for (const framework of ["react", "vue", "svelte", "angular", "astro"]) {
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
     await page.goto(`/frameworks/${framework}/`);
-    await page
-      .getByLabel("Select files")
-      .setInputFiles({
-        name: `${framework}-document.txt`,
-        mimeType: "text/plain",
-        buffer: Buffer.alloc(600000, 65),
-      });
+    await page.getByLabel("Select files").setInputFiles({
+      name: `${framework}-document.txt`,
+      mimeType: "text/plain",
+      buffer: Buffer.alloc(600000, 65),
+    });
     const row = page.locator("article.custom-row");
     await expect(row).toContainText(`${framework}-document.txt`);
     if (framework !== "astro") {
@@ -46,13 +44,11 @@ test("HTTP and indeterminate recipes use the local single-request endpoint", asy
   await page.goto("/");
   for (const kind of ["http", "indeterminate"]) {
     const root = page.locator(`#${kind}`);
-    await root
-      .locator("[data-upload-input]")
-      .setInputFiles({
-        name: `${kind}.txt`,
-        mimeType: "text/plain",
-        buffer: Buffer.from("single request body"),
-      });
+    await root.locator("[data-upload-input]").setInputFiles({
+      name: `${kind}.txt`,
+      mimeType: "text/plain",
+      buffer: Buffer.from("single request body"),
+    });
     await root
       .getByRole("button", { name: "Upload files", exact: true })
       .click();
@@ -60,3 +56,28 @@ test("HTTP and indeterminate recipes use the local single-request endpoint", asy
     await expect(root.locator("[data-percentage]")).toHaveText("100%");
   }
 });
+
+for (const framework of ["react", "vue", "svelte", "angular", "astro"]) {
+  test(`${framework} retries after cancel without reusing the canceled session`, async ({
+    page,
+  }) => {
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.goto(`/frameworks/${framework}/`);
+    await page
+      .getByLabel("Select files")
+      .setInputFiles({
+        name: `cancel-${framework}.txt`,
+        mimeType: "text/plain",
+        buffer: Buffer.alloc(1024 * 1024, 67),
+      });
+    const row = page.locator("article.custom-row");
+    await page.getByRole("button", { name: "Upload", exact: true }).click();
+    await expect(row).toHaveAttribute("data-state", "uploading");
+    await row.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(row).toHaveAttribute("data-state", "canceled");
+    await row.getByRole("button", { name: "Retry", exact: true }).click();
+    await expect(row).toHaveAttribute("data-state", "completed");
+    expect(errors).toEqual([]);
+  });
+}

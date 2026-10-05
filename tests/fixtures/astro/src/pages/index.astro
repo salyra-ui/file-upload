@@ -18,6 +18,8 @@ import { FileUploader } from "../../../../../release/file-uploader/dist/astro/in
           <FileUploader.Item as="article" class="custom-row">
             <FileUploader.Name />
             <FileUploader.Status />
+            <FileUploader.Action action="cancel">Cancel</FileUploader.Action>
+            <FileUploader.Action action="retry">Retry</FileUploader.Action>
             <FileUploader.Progress aria-label="Upload progress">
               <span data-upload-percentage />
             </FileUploader.Progress>

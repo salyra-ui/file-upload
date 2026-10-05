@@ -107,6 +107,7 @@ export function createUploader(options: UploaderOptions): UploaderStore {
     generations = new Map<string, number>(),
     validation = new Map<string, AbortController>();
   const auxiliary = new Set<AbortController>();
+  const validated = new Set<string>();
   let destroyed = false,
     active = 0,
     saveChain = Promise.resolve(),
@@ -224,6 +225,10 @@ export function createUploader(options: UploaderOptions): UploaderStore {
     metadata,
     file,
     status: "idle",
+    session: undefined,
+    result: undefined,
+    error: undefined,
+    removeError: undefined,
     parts: [],
     uploadedBytes: 0,
     transferredBytes: 0,
@@ -709,7 +714,7 @@ export function createUploader(options: UploaderOptions): UploaderStore {
         });
     }
   }
-  function stop(id: string) {
+  function stop(id: string, update?: Partial<UploadItem>, durable = false) {
     const run = runs.get(id);
     generations.set(id, (generations.get(id) ?? 0) + 1);
     validation.get(id)?.abort();
@@ -718,18 +723,32 @@ export function createUploader(options: UploaderOptions): UploaderStore {
       run.controller.abort();
       clearTimeout(run.noticeTimer);
       clearTimeout(run.metricsTimer);
-      patch(id, {
-        activeMilliseconds: run.initialActive + Date.now() - run.started,
-        transferredBytes: getItem(id)?.uploadedBytes,
-        progress: transport.capabilities.progress
-          ? getItem(id)!.totalBytes
-            ? (getItem(id)!.uploadedBytes / getItem(id)!.totalBytes) * 100
-            : 0
-          : null,
-        bytesPerSecond: null,
-        etaSeconds: null,
-        nextRetryAt: null,
-      });
+    }
+    if (run || update) {
+      const item = getItem(id);
+      if (!item) return;
+      patch(
+        id,
+        {
+          ...(run
+            ? {
+                activeMilliseconds:
+                  run.initialActive + Date.now() - run.started,
+                transferredBytes: item.uploadedBytes,
+                progress: transport.capabilities.progress
+                  ? item.totalBytes
+                    ? (item.uploadedBytes / item.totalBytes) * 100
+                    : 0
+                  : null,
+                bytesPerSecond: null,
+                etaSeconds: null,
+                nextRetryAt: null,
+              }
+            : {}),
+          ...update,
+        },
+        durable,
+      );
     }
   }
   async function cleanup(record: CleanupRecord) {
@@ -802,6 +821,13 @@ export function createUploader(options: UploaderOptions): UploaderStore {
     }
   }
   function scheduleCleanup(item: UploadItem) {
+    // A plain HTTP transport has only a local request ID. Remote cleanup is application-owned.
+    if (
+      !transport.capabilities.resume &&
+      !transport.capabilities.terminate &&
+      !options.onCancel
+    )
+      return Promise.resolve();
     if (
       !item.session &&
       (!transport.capabilities.resume ||
@@ -820,6 +846,45 @@ export function createUploader(options: UploaderOptions): UploaderStore {
     state = { ...state, cleanups: [...state.cleanups, record] };
     persist();
     return cleanup(record);
+  }
+  async function validateItem(
+    id: string,
+    file: File,
+    ready: "idle" | "queued",
+  ) {
+    if (destroyed || getItem(id)?.status !== "validating") return;
+    const ctl = new AbortController();
+    validation.set(id, ctl);
+    try {
+      const fail = !accepts(file, options.accept)
+        ? "File format is not accepted"
+        : options.maxFileSize !== undefined && file.size > options.maxFileSize
+          ? "File exceeds the size limit"
+          : options.maxFiles !== undefined &&
+              state.items.filter((i) => i.status !== "failed").length >
+                options.maxFiles
+            ? "File count exceeds the limit"
+            : options.maxTotalSize !== undefined &&
+                state.items
+                  .filter((i) => i.status !== "failed")
+                  .reduce((sum, i) => sum + i.totalBytes, 0) >
+                  options.maxTotalSize
+              ? "Total file size exceeds the limit"
+              : await options.validateFile?.(file, ctl.signal);
+      ctl.signal.throwIfAborted();
+      if (destroyed || !getItem(id) || validation.get(id) !== ctl) return;
+      if (fail) throw new TransferError(fail, "VALIDATION");
+      validated.add(id);
+      patch(id, { status: ready, error: undefined }, true);
+      pump();
+    } catch (error) {
+      if (!isAbort(error) && !destroyed && validation.get(id) === ctl) {
+        patch(id, { status: "failed", error: errorValue(error) }, true);
+        reportError(errorValue(error), getItem(id));
+      }
+    } finally {
+      if (validation.get(id) === ctl) validation.delete(id);
+    }
   }
   const store: UploaderStore = {
     getSnapshot: () => state,
@@ -850,38 +915,7 @@ export function createUploader(options: UploaderOptions): UploaderStore {
           };
         collection([...state.items, item]);
         ids.push(id);
-        const ctl = new AbortController();
-        validation.set(id, ctl);
-        try {
-          const fail = !accepts(file, options.accept)
-            ? "File format is not accepted"
-            : options.maxFileSize !== undefined &&
-                file.size > options.maxFileSize
-              ? "File exceeds the size limit"
-              : options.maxFiles !== undefined &&
-                  state.items.filter((i) => i.status !== "failed").length >
-                    options.maxFiles
-                ? "File count exceeds the limit"
-                : options.maxTotalSize !== undefined &&
-                    state.items
-                      .filter((i) => i.status !== "failed")
-                      .reduce((sum, i) => sum + i.totalBytes, 0) >
-                      options.maxTotalSize
-                  ? "Total file size exceeds the limit"
-                  : await options.validateFile?.(file, ctl.signal);
-          ctl.signal.throwIfAborted();
-          if (destroyed || !getItem(id)) continue;
-          if (fail) throw new TransferError(fail, "VALIDATION");
-          patch(id, { status: options.autoUpload ? "queued" : "idle" }, true);
-          pump();
-        } catch (error) {
-          if (!isAbort(error) && !destroyed) {
-            patch(id, { status: "failed", error: errorValue(error) }, true);
-            reportError(errorValue(error), getItem(id));
-          }
-        } finally {
-          validation.delete(id);
-        }
+        await validateItem(id, file, options.autoUpload ? "queued" : "idle");
       }
       return ids;
     },
@@ -989,6 +1023,7 @@ export function createUploader(options: UploaderOptions): UploaderStore {
       if (file.name !== item.metadata.name || file.size !== item.totalBytes)
         throw new TransferError("Select the original file", "FILE_MISMATCH");
       // Content identity is verified against every server receipt during resume.
+      validated.delete(id);
       patch(id, { file, status: "paused", error: undefined }, true);
     },
     start(id) {
@@ -998,13 +1033,31 @@ export function createUploader(options: UploaderOptions): UploaderStore {
         if (
           (!id || item.id === id) &&
           item.file &&
-          ["idle", "paused", "failed", "awaiting-file"].includes(item.status) &&
+          ["idle", "paused", "failed", "awaiting-file", "canceled"].includes(
+            item.status,
+          ) &&
           (!runs.has(item.id) ||
             runs.get(item.id)!.generation !==
               (generations.get(item.id) ?? 0)) &&
           item.error?.code !== "VALIDATION"
-        )
-          patch(item.id, { status: "queued", error: undefined }, true);
+        ) {
+          const needsValidation = !validated.has(item.id);
+          const status = needsValidation ? "validating" : "queued";
+          if (item.status === "canceled" || item.error?.code === "CANCELED") {
+            // A canceled remote session cannot accept more parts. Keep cleanup on its old key.
+            stop(
+              item.id,
+              {
+                ...baseItem(item.id, item.metadata, item.file),
+                status,
+              },
+              true,
+            );
+          } else {
+            patch(item.id, { status, error: undefined }, true);
+          }
+          if (needsValidation) void validateItem(item.id, item.file, "queued");
+        }
       pump();
     },
     pause(id) {
@@ -1021,8 +1074,7 @@ export function createUploader(options: UploaderOptions): UploaderStore {
         ].includes(item.status)
       )
         return;
-      stop(id);
-      patch(id, { status: "paused" }, true);
+      stop(id, { status: "paused", error: undefined }, true);
     },
     resume(id) {
       store.start(id);
@@ -1033,17 +1085,25 @@ export function createUploader(options: UploaderOptions): UploaderStore {
     async cancel(id) {
       if (!mutable()) return;
       const item = getItem(id);
-      if (!item || item.status === "completed") return;
-      stop(id);
-      patch(id, { status: "canceled" }, true);
+      if (!item || ["completed", "canceled"].includes(item.status)) return;
+      stop(
+        id,
+        {
+          status: "canceled",
+          error: undefined,
+          nextRetryAt: null,
+          bytesPerSecond: null,
+          etaSeconds: null,
+        },
+        true,
+      );
       await scheduleCleanup(item);
     },
     async reset(id) {
       if (!mutable()) return;
       const item = getItem(id);
       if (!item || item.status === "completed") return;
-      stop(id);
-      patch(
+      stop(
         id,
         {
           ...baseItem(id, item.metadata, item.file),
@@ -1073,6 +1133,7 @@ export function createUploader(options: UploaderOptions): UploaderStore {
         await options.onRemove(item, ctl.signal);
         if (!destroyed) {
           stop(id);
+          validated.delete(id);
           collection(state.items.filter((current) => current.id !== id));
           itemListeners.get(id)?.forEach((fn) => fn());
         }
@@ -1086,6 +1147,7 @@ export function createUploader(options: UploaderOptions): UploaderStore {
     forget(id) {
       if (!mutable()) return;
       stop(id);
+      validated.delete(id);
       collection(state.items.filter((item) => item.id !== id));
       itemListeners.get(id)?.forEach((fn) => fn());
     },
@@ -1103,6 +1165,7 @@ export function createUploader(options: UploaderOptions): UploaderStore {
       if (destroyed) return;
       for (const id of runs.keys()) stop(id);
       destroyed = true;
+      validated.clear();
       validation.forEach((ctl) => ctl.abort());
       auxiliary.forEach((ctl) => ctl.abort());
       listeners.clear();

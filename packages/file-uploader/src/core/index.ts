@@ -30,7 +30,9 @@ export function uploadActions(item: import("./types").UploadItem) {
   return {
     canStart:
       !!item.file &&
-      ["idle", "paused", "failed", "awaiting-file"].includes(item.status) &&
+      ["idle", "paused", "failed", "awaiting-file", "canceled"].includes(
+        item.status,
+      ) &&
       item.error?.code !== "VALIDATION",
     canPause: [
       "queued",
@@ -42,7 +44,7 @@ export function uploadActions(item: import("./types").UploadItem) {
     canResume: !!item.file && ["paused", "awaiting-file"].includes(item.status),
     canRetry:
       !!item.file &&
-      item.status === "failed" &&
+      ["failed", "canceled"].includes(item.status) &&
       item.error?.code !== "VALIDATION",
     canCancel: !["completed", "canceled"].includes(item.status),
     canReset: item.status !== "completed",

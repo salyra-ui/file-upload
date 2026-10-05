@@ -28,8 +28,10 @@
     {#snippet children(ids)}
       {#each ids as id (id)}
         <FileUploader.Item as="article" {id} class="custom-row"
-          ><FileUploader.Name /><FileUploader.Status /><FileUploader.Progress
-            aria-label="Upload progress"
+          ><FileUploader.Name /><FileUploader.Status /><FileUploader.Action
+            action="cancel">Cancel</FileUploader.Action
+          ><FileUploader.Action action="retry">Retry</FileUploader.Action
+          ><FileUploader.Progress aria-label="Upload progress"
             >{#snippet children(item)}{Math.round(
                 item.progress ?? 0,
               )}%{/snippet}</FileUploader.Progress
