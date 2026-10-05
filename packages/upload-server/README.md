@@ -1,0 +1,53 @@
+# Salyra UI Upload Server
+
+Persistent upload sessions with streaming storage and configurable routes. Importing the package does not register routes or start a server.
+
+```sh
+npm install @salyra-ui/upload-server
+```
+
+```ts
+import { createServer } from "node:http";
+import {
+  createUploadServer,
+  createUploadRouter,
+} from "@salyra-ui/upload-server";
+import {
+  filesystemSessionStore,
+  filesystemStorage,
+} from "@salyra-ui/upload-server/filesystem";
+
+const engine = createUploadServer({
+  sessionStore: filesystemSessionStore("./private-uploads/sessions"),
+  storage: filesystemStorage("./private-uploads/content"),
+  maxFileSize: 128 * 1024 * 1024,
+  // Supply authorize and scope from your application's authentication.
+});
+const upload = createUploadRouter(engine, { basePath: "/documents/uploads" });
+createServer(async (request, response) => {
+  if (!(await upload(request, response))) {
+    response.writeHead(404);
+    response.end();
+  }
+}).listen(3000, "127.0.0.1");
+```
+
+Call `createUpload`, `getUpload`, `receivePart`, `finishUpload` and `cancelUpload` directly from your own controllers. Session storage and file storage are independent interfaces.
+
+`/s3` exports `s3Storage` and `r2Storage`. Install `@aws-sdk/client-s3` for these adapters and supply a persistent receipt journal. Provider SDKs are excluded from the core server entry.
+
+[Documentation](https://salyra-ui.github.io/docs/upload-server.html) · [Protocol](https://github.com/salyra-ui/file-upload/blob/main/protocol/README.md)
+
+Notifications run after the storage transaction releases its locks. `onEvent` can inspect the committed session. Callback failures reach `onNotificationError` and do not turn a committed transfer into a failed response. Persist an application outbox for work that must survive a process crash.
+
+An expired finalizing session inspects the destination before cleanup. A committed result is recovered as completed during probe, duplicate creation and expiry sweeping.
+
+## Encrypted storage
+
+`/encryption` exports `encryptedFilesystemStorage`. Supply a private directory and a keyring whose `current(context)` selects a 32-byte key and whose `resolve(id, context)` loads retained key versions. The browser transport stays the same. The server encrypts chunks on disk and `storage.read(id, context)` returns an authenticated, decrypted stream for your download route.
+
+Keep keys in your application secret store and retain previous versions for existing uploads. A missing key fails the operation and never falls back to plaintext. Filenames, descriptors, sizes and plaintext checksums remain metadata. This is storage encryption, not browser end-to-end encryption.
+
+S3 also accepts `encryption: { mode: "AES256" }` or `{ mode: "aws:kms", keyId: "alias/uploads", bucketKey: true }`. R2 uses its own provider encryption and rejects these AWS options.
+
+[Encryption, downloads and key rotation](https://salyra-ui.github.io/docs/upload-server.html#encryption) · [Storage format](https://github.com/salyra-ui/file-upload/blob/feat/file-uploader/ENCRYPTION.md)
