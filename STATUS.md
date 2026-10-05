@@ -12,6 +12,8 @@ The browser and Node packages are built locally. Registry publication is a separ
 - React, Svelte, Vue, Angular, Astro and Vanilla compositions with custom markup, classes, content and native events
 - Separate Node server operations, configurable routes, authorization context, session stores and storage adapters
 - Filesystem storage and Node S3/R2 storage with a persistent multipart receipt journal
+- Optional Node encrypted filesystem storage, application key rotation and authenticated streaming downloads
+- Explicit S3-managed AES256 or KMS encryption settings for new objects
 - Native engines for Go, Rust, Java, .NET, Python, PHP, Ruby, Elixir and C, plus Kotlin, Scala and C++ bridges
 - API reference, working Preview/Code examples, all six frontend framework recipes, protocol schemas and a versioned documentation snapshot
 
@@ -22,9 +24,9 @@ The browser and Node packages are built locally. Registry publication is a separ
 | TypeScript           | Browser engine, adapters, Node server, local examples and test scripts compile                                                                                                                                                       |
 | Frameworks           | Svelte and Astro compile, Angular partial compilation passes, React and Vue SSR isolate stores                                                                                                                                       |
 | Public recipes       | All 54 framework/example combinations parse or compile                                                                                                                                                                               |
-| Unit and fault cases | 46 tests pass, including interrupted responses, retry, persistence, cleanup, provider responses and per-item notification behavior                                                                                                   |
+| Unit and fault cases | 68 tests pass, including interrupted responses, retry, persistence, cleanup, provider responses and per-item notification behavior                                                                                                   |
 | Browser interaction  | 84 browser tests pass in Linux CI across Chromium, Firefox and WebKit against the real Node server, including five compiled framework adapters, refresh/reselect, completed-file deletion and Cancel → Retry across all compositions |
-| Documentation        | 29 tests pass across the existing component catalog, uploader guide, browser simulation, mobile layouts, downloads and immutable version links                                                                                       |
+| Documentation        | 30 tests pass across the existing component catalog, uploader guide, browser simulation, mobile layouts, downloads and immutable version links                                                                                       |
 | Package consumer     | Fresh installs of the actual npm archives compile with NodeNext and run without unrequested framework or provider peers. React, Vue and Angular adapter types also compile with their selected peers                                 |
 | Native HTTP protocol | Nine running backend engines pass the same compatibility suite                                                                                                                                                                       |
 | Process restart      | Saved parts survive a server restart in all nine backend engines and finish with the same session ID                                                                                                                                 |
@@ -66,3 +68,15 @@ npm run test:native -- go
 ```
 
 Repeat the native command for rust, jvm, python, php, ruby, dotnet, elixir and c. The GitHub workflow runs that matrix and the browser/package checks on pushes and pull requests.
+
+## Storage encryption verification
+
+The encrypted 2 GiB HTTP transfer completed in 39.5 seconds locally and its decrypted SHA-256 matched the source. Combined client/server RSS rose from 88 MiB to 204 MiB, an additional 116 MiB. The benchmark limit is 384 MiB of additional RSS. These are measurements on this machine, not a throughput guarantee.
+
+The 22 new tests cover authenticated storage, tampering, receipt recovery, key rotation, canceled transfers, empty files, interrupted streams, request context and S3 encryption settings. Fresh archive consumers can import `/encryption` without installing the AWS SDK. Native engines keep their existing storage extension interfaces. Built-in encrypted disk storage is currently Node only.
+
+```sh
+SALYRA_STRESS_ENCRYPTED=1 node --import tsx scripts/stress.ts
+```
+
+See [ENCRYPTION.md](ENCRYPTION.md) for the format, key ownership, downloads and the distinction from browser end-to-end encryption.

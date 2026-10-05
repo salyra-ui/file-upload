@@ -20,6 +20,9 @@ jobs:
       - run: npm run check:examples
       - run: npm test
       - run: node --import tsx scripts/stress.ts
+      - run: node --import tsx scripts/stress.ts
+        env:
+          SALYRA_STRESS_ENCRYPTED: "1"
       - run: npm run build
       - run: node scripts/consumer.mjs
       - run: node scripts/framework-browser.mjs

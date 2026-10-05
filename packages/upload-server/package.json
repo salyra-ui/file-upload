@@ -14,7 +14,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./filesystem": "./src/storage/filesystem.ts",
-    "./s3": "./src/storage/s3.ts"
+    "./s3": "./src/storage/s3.ts",
+    "./encryption": "./src/storage/encryption.ts"
   },
   "engines": {
     "node": ">=22"

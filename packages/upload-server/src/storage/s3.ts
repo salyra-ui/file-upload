@@ -21,12 +21,16 @@ import type {
   MultipartReference as Reference,
 } from "../types";
 import { UploadServerError } from "../types";
+export type S3Encryption =
+  { mode: "AES256" } | { mode: "aws:kms"; keyId: string; bucketKey?: boolean };
 export interface S3StorageOptions {
   client: S3Client;
   bucket: string;
   prefix?: string;
   journal: ReceiptJournal;
   provider?: "s3" | "r2";
+  /** Applied when creating new objects. R2 manages encryption itself and does not accept these AWS options. */
+  encryption?: S3Encryption;
 }
 const reference = (session: ServerSession) => session.storageRef as Reference;
 const missing = (error: unknown) =>
@@ -36,6 +40,37 @@ const missing = (error: unknown) =>
 export function s3Storage(options: S3StorageOptions): StorageAdapter {
   const { client, journal, bucket } = options,
     checksums = options.provider !== "r2";
+  if (options.encryption && options.provider === "r2")
+    throw new TypeError(
+      "R2 does not accept AWS server-side encryption options",
+    );
+  if (
+    options.encryption &&
+    !["AES256", "aws:kms"].includes(options.encryption.mode)
+  )
+    throw new TypeError("Unsupported S3 encryption mode");
+  if (
+    options.encryption?.mode === "aws:kms" &&
+    options.encryption.bucketKey !== undefined &&
+    typeof options.encryption.bucketKey !== "boolean"
+  )
+    throw new TypeError("S3 bucketKey must be a boolean");
+  if (
+    options.encryption?.mode === "aws:kms" &&
+    (typeof options.encryption.keyId !== "string" ||
+      !options.encryption.keyId.trim())
+  )
+    throw new TypeError("KMS encryption requires a key ID");
+  const encryption =
+    options.encryption?.mode === "aws:kms"
+      ? {
+          ServerSideEncryption: "aws:kms" as const,
+          SSEKMSKeyId: options.encryption.keyId,
+          BucketKeyEnabled: options.encryption.bucketKey,
+        }
+      : options.encryption
+        ? { ServerSideEncryption: "AES256" as const }
+        : {};
   const keyFor = (id: string) => `${options.prefix ?? "uploads/"}${id}`;
   return {
     capabilities: {
@@ -62,6 +97,7 @@ export function s3Storage(options: S3StorageOptions): StorageAdapter {
             Bucket: bucket,
             Key: key,
             Body: "",
+            ...encryption,
             Metadata: { "salyra-session": session.id },
           }),
         );
@@ -71,6 +107,7 @@ export function s3Storage(options: S3StorageOptions): StorageAdapter {
         new CreateMultipartUploadCommand({
           Bucket: bucket,
           Key: key,
+          ...encryption,
           ContentType: session.descriptor.type || "application/octet-stream",
           Metadata: { "salyra-session": session.id },
           ...(checksums ? { ChecksumAlgorithm: "SHA256" as const } : {}),

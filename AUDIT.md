@@ -57,3 +57,13 @@ Client and server share one process in this test. These are observed values on t
 ## Reproduce
 
 Run the commands in STATUS.md. `scripts/native.sh` uses a private temporary data directory for each engine, restarts its example server and removes its own container and fixtures on exit. `scripts/stress.ts` accepts `SALYRA_STRESS_BYTES` for a smaller local smoke check.
+
+## Optional storage encryption
+
+The Node encrypted filesystem adapter has 19 storage regressions. Three additional provider tests verify S3 AES256/KMS options on multipart and empty-file creation, and reject AWS encryption options on R2. Together with the existing tests, 68 unit/fault cases pass.
+
+Verified cases include out-of-order assembly, cancel/retry with a fresh session, interrupted request cleanup, missing receipt/checkpoint recovery, completion recovery after finalization expiry, retained-key rotation after restart, missing/wrong keys, altered ciphertext and tags, truncation, trailing bytes, swapped parts and swapped sessions. Downloads emit each frame only after authentication. Derived keys are released on stream completion or cancellation. Request context reaches the keyring and borrowed application key buffers are not overwritten.
+
+A real HTTP transfer of 2,147,483,648 bytes using encrypted storage finished and its decrypted SHA-256 matched the source. The local combined client/server measurement was 39.5 seconds, baseline RSS 88 MiB, peak 204 MiB and additional RSS 116 MiB. The benchmark streams a disk-backed file and checks the same 384 MiB additional-RSS ceiling as the ordinary storage test. CI runs both modes.
+
+AES-256-GCM, HKDF-SHA-256 and HMAC-SHA-256 use Node crypto. The container format and key lifecycle are documented in ENCRYPTION.md. There has been no independent cryptographic review. Application metadata and plaintext digests are outside the content encryption boundary. Encryption adapters for native backends, browser end-to-end encryption and migration of existing plaintext storage are not included.

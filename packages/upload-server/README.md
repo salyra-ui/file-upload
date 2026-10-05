@@ -41,3 +41,13 @@ Call `createUpload`, `getUpload`, `receivePart`, `finishUpload` and `cancelUploa
 Notifications run after the storage transaction releases its locks. `onEvent` can inspect the committed session. Callback failures reach `onNotificationError` and do not turn a committed transfer into a failed response. Persist an application outbox for work that must survive a process crash.
 
 An expired finalizing session inspects the destination before cleanup. A committed result is recovered as completed during probe, duplicate creation and expiry sweeping.
+
+## Encrypted storage
+
+`/encryption` exports `encryptedFilesystemStorage`. Supply a private directory and a keyring whose `current(context)` selects a 32-byte key and whose `resolve(id, context)` loads retained key versions. The browser transport stays the same. The server encrypts chunks on disk and `storage.read(id, context)` returns an authenticated, decrypted stream for your download route.
+
+Keep keys in your application secret store and retain previous versions for existing uploads. A missing key fails the operation and never falls back to plaintext. Filenames, descriptors, sizes and plaintext checksums remain metadata. This is storage encryption, not browser end-to-end encryption.
+
+S3 also accepts `encryption: { mode: "AES256" }` or `{ mode: "aws:kms", keyId: "alias/uploads", bucketKey: true }`. R2 uses its own provider encryption and rejects these AWS options.
+
+[Encryption, downloads and key rotation](https://salyra-ui.github.io/docs/upload-server.html#encryption) · [Storage format](https://github.com/salyra-ui/file-upload/blob/feat/file-uploader/ENCRYPTION.md)

@@ -188,6 +188,7 @@ await build({
     index: "packages/upload-server/src/index.ts",
     "storage/filesystem": "packages/upload-server/src/storage/filesystem.ts",
     "storage/s3": "packages/upload-server/src/storage/s3.ts",
+    "storage/encryption": "packages/upload-server/src/storage/encryption.ts",
   },
   outdir: `${backend}/dist`,
   bundle: true,
@@ -209,7 +210,7 @@ delete backendManifest.private;
 backendManifest.exports = {
   ".": { types: "./dist/index.d.ts", import: "./dist/index.js" },
   ...Object.fromEntries(
-    ["filesystem", "s3"].map((name) => [
+    ["filesystem", "s3", "encryption"].map((name) => [
       `./${name}`,
       {
         types: `./dist/storage/${name}.d.ts`,

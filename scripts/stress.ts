@@ -4,7 +4,7 @@ import { openAsBlob, createReadStream } from "node:fs";
 import { mkdtemp, open, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { createUploader } from "../packages/file-uploader/src/core";
 import { chunkedTransport } from "../packages/file-uploader/src/transport/chunked";
 import {
@@ -15,6 +15,8 @@ import {
   filesystemSessionStore,
   filesystemStorage,
 } from "../packages/upload-server/src/storage/filesystem";
+
+import { encryptedFilesystemStorage } from "../packages/upload-server/src/storage/encryption";
 
 // A sparse disk fixture avoids allocating the file in RAM before the test starts.
 const size = Number(process.env.SALYRA_STRESS_BYTES ?? 2 * 1024 ** 3);
@@ -35,9 +37,17 @@ try {
     name: "large-file.bin",
     lastModified: 0,
   }) as File;
+  const encrypted = process.env.SALYRA_STRESS_ENCRYPTED === "1";
+  const key = randomBytes(32);
+  const protectedStorage = encryptedFilesystemStorage({
+    directory: join(directory, "storage"),
+    keys: { current: () => ({ id: "stress-key", key }), resolve: () => key },
+  });
   const engine = createUploadServer({
     sessionStore: filesystemSessionStore(join(directory, "sessions")),
-    storage: filesystemStorage(join(directory, "storage")),
+    storage: encrypted
+      ? protectedStorage
+      : filesystemStorage(join(directory, "storage")),
     maxFileSize: size,
     maxChunkSize: 8 * 1024 ** 2,
   });
@@ -70,7 +80,7 @@ try {
   });
   const [id] = await uploader.add([file]);
   uploader.start(id);
-  const deadline = Date.now() + 180_000;
+  const deadline = Date.now() + (encrypted ? 300_000 : 180_000);
   while (uploader.getItem(id)?.status !== "completed") {
     const item = uploader.getItem(id)!;
     assert(
@@ -90,9 +100,19 @@ try {
   }
   assert.equal(
     await hash(source),
-    await hash(join(directory, "storage", "files", item.session!.id)),
+    encrypted
+      ? await (async () => {
+          const digest = createHash("sha256");
+          for await (const bytes of await protectedStorage.read(
+            item.session!.id,
+          ))
+            digest.update(bytes);
+          return digest.digest("hex");
+        })()
+      : await hash(join(directory, "storage", "files", item.session!.id)),
   );
   const report = {
+    encrypted,
     bytes: size,
     chunkBytes: 8 * 1024 ** 2,
     parallelChunks: 2,

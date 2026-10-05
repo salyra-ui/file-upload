@@ -7,6 +7,7 @@ import {
   CreateMultipartUploadCommand,
   ListPartsCommand,
   HeadObjectCommand,
+  PutObjectCommand,
 } from "@aws-sdk/client-s3";
 import { Readable } from "node:stream";
 import {
@@ -185,4 +186,67 @@ it("recovers a multipart reference after a session-ledger interruption", async (
   });
   expect(await restarted.begin(session, undefined)).toEqual(first);
   expect(created).toBe(1);
+});
+
+it.each(["AES256", "aws:kms"] as const)(
+  "passes %s encryption settings to multipart and empty-file creation",
+  async (mode) => {
+    const commands: (CreateMultipartUploadCommand | PutObjectCommand)[] = [];
+    const client = {
+      async send(command: CreateMultipartUploadCommand | PutObjectCommand) {
+        commands.push(command);
+        return { UploadId: "encrypted" };
+      },
+    } as unknown as S3Client;
+    const encryption =
+      mode === "aws:kms"
+        ? { mode, keyId: "alias/uploads", bucketKey: true }
+        : { mode };
+    const storage = s3Storage({
+      client,
+      bucket: "uploads",
+      journal: journal(),
+      encryption,
+    });
+    await storage.begin(session, undefined);
+    const emptyStorage = s3Storage({
+      client,
+      bucket: "uploads",
+      journal: journal(),
+      encryption,
+    });
+    await emptyStorage.begin(
+      {
+        ...session,
+        id: "empty",
+        descriptor: { ...session.descriptor, size: 0 },
+      },
+      undefined,
+    );
+    expect(commands[0]).toBeInstanceOf(CreateMultipartUploadCommand);
+    expect(commands[1]).toBeInstanceOf(PutObjectCommand);
+    for (const command of commands)
+      expect(command.input).toMatchObject(
+        mode === "aws:kms"
+          ? {
+              ServerSideEncryption: mode,
+              SSEKMSKeyId: "alias/uploads",
+              BucketKeyEnabled: true,
+            }
+          : { ServerSideEncryption: mode },
+      );
+  },
+);
+it("rejects AWS encryption options for R2 and empty KMS key IDs", () => {
+  const base = {
+    client: {} as S3Client,
+    bucket: "uploads",
+    journal: journal(),
+  };
+  expect(() => r2Storage({ ...base, encryption: { mode: "AES256" } })).toThrow(
+    "R2",
+  );
+  expect(() =>
+    s3Storage({ ...base, encryption: { mode: "aws:kms", keyId: " " } }),
+  ).toThrow("key ID");
 });
